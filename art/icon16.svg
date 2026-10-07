@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" shape-rendering="geometricPrecision">
+  <!-- simplified scroll for the 16px toolbar size: no text lines, flat rolls -->
+  <rect x="3" y="2.5" width="9" height="11" fill="#f1dfae" stroke="#7a5a26"/>
+  <rect x="1.5" y="1.5" width="12" height="2.5" rx="1.2" fill="#d9b86e" stroke="#7a5a26"/>
+  <rect x="1.5" y="12" width="12" height="2.5" rx="1.2" fill="#d9b86e" stroke="#7a5a26"/>
+  <polyline points="1.5,12 5,8.5 7,10.5 11,6" fill="none" stroke="#0b3d1c" stroke-width="3.2" stroke-linejoin="round" stroke-linecap="round"/>
+  <polyline points="1.5,12 5,8.5 7,10.5 11,6" fill="none" stroke="#22c55e" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/>
+  <polygon points="15.5,0.5 15,7.5 8.5,2" fill="#22c55e" stroke="#0b3d1c" stroke-width="0.9" stroke-linejoin="round"/>
+</svg>

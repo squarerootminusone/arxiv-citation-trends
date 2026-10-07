@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="paper" x1="0" x2="1">
+      <stop offset="0" stop-color="#f6e7bf"/><stop offset="1" stop-color="#ead39a"/>
+    </linearGradient>
+    <linearGradient id="roll" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f3dfa8"/><stop offset=".55" stop-color="#d9b86e"/><stop offset="1" stop-color="#b8924a"/>
+    </linearGradient>
+  </defs>
+  <!-- paper body -->
+  <rect x="24" y="20" width="76" height="88" fill="url(#paper)" stroke="#7a5a26" stroke-width="4"/>
+  <!-- text lines -->
+  <g stroke="#c7a866" stroke-width="4" stroke-linecap="round">
+    <line x1="34" y1="38" x2="88" y2="38"/><line x1="34" y1="50" x2="80" y2="50"/>
+    <line x1="34" y1="62" x2="86" y2="62"/><line x1="34" y1="74" x2="70" y2="74"/>
+  </g>
+  <!-- top and bottom rolls -->
+  <rect x="14" y="10" width="96" height="18" rx="9" fill="url(#roll)" stroke="#7a5a26" stroke-width="4"/>
+  <rect x="14" y="100" width="96" height="18" rx="9" fill="url(#roll)" stroke="#7a5a26" stroke-width="4"/>
+  <ellipse cx="23" cy="19" rx="4" ry="6" fill="#9c7637"/>
+  <ellipse cx="23" cy="109" rx="4" ry="6" fill="#9c7637"/>
+  <!-- stonks arrow: dark halo, then green line and head -->
+  <g stroke-linejoin="round" stroke-linecap="round" fill="none">
+    <polyline points="10,98 40,66 58,82 98,34" stroke="#0b3d1c" stroke-width="22"/>
+    <polyline points="10,98 40,66 58,82 98,34" stroke="#22c55e" stroke-width="13"/>
+  </g>
+  <polygon points="122,6 116,50 78,22" fill="#22c55e" stroke="#0b3d1c" stroke-width="5" stroke-linejoin="round"/>
+</svg>

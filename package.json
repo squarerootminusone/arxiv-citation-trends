@@ -1,0 +1,20 @@
+{
+  "name": "arxiv-citation-trends",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Chrome extension: Google Scholar style citations-per-year chart with a trend label on arXiv abstract pages",
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.ts",
+    "watch": "node scripts/build.ts --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test 'test/**/*.test.ts'",
+    "check": "npm run typecheck && npm test && npm run build"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.3.4",
+    "@types/node": "^26.6.4",
+    "esbuild": "^0.28.2",
+    "typescript": "^7.0.2"
+  }
+}
