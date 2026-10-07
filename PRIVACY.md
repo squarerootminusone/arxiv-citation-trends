@@ -1,6 +1,6 @@
 # Privacy
 
-Citation Trends collects no personal data and has no server of its own.
+Citation Trends has no server of its own. The only data that leaves your browser is the id of each arXiv paper you open, sent to Semantic Scholar to look up its citations.
 
 **What it reads.** On arXiv abstract pages (`arxiv.org/abs/...`) it reads the paper id from the page address. It reads nothing else from any page, and it does not run on other sites.
 

@@ -29,6 +29,6 @@ Citation Trends is an independent project. It is not affiliated with, reviewed b
 - api.semanticscholar.org: source of citation data.
 - www.semanticscholar.org/api: exact citations per year for a paper, in one request.
 
-**Data usage:** no user data collected.
+**Data usage:** Web history only: the arXiv id of each abstract page opened is sent to Semantic Scholar to fetch its citations. Nothing is sold, shared elsewhere or used for anything else.
 
 **Privacy policy:** https://github.com/squarerootminusone/arxiv-citation-trends/blob/main/PRIVACY.md
