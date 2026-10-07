@@ -18,7 +18,7 @@ See where a paper is heading. Citation Trends adds a small chart to every arXiv 
 
 Hover a bar for that year's count, or the label for the numbers behind it.
 
-Citation data comes from Semantic Scholar. A free Semantic Scholar API key, added in the extension options, makes loading faster.
+Citation data comes from Semantic Scholar. A free Semantic Scholar API key, added in the extension options, makes loading faster. Apply for one at https://www.semanticscholar.org/product/api#api-key-form
 
 Citation Trends is an independent project. It is not affiliated with, reviewed by or endorsed by arXiv or Semantic Scholar.
 
