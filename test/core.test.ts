@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { arxivIdFromPath, arxivYear, bucketCitations, classifyTrend, fitYear, monthKey, niceMax, whittaker, yearFraction } from '../src/core.ts';
+import { arxivIdFromPath, arxivYear, bucketCitations, classifyTrend, fitSCurve, fitYear, monthKey, niceMax, scurveAt, yearFraction } from '../src/core.ts';
 
 const OCT = new Date(Date.UTC(2026, 9, 7)); // ~77% through the year
 const MAR = new Date(Date.UTC(2026, 2, 1)); // ~16% through the year
@@ -46,10 +46,17 @@ test('yearFraction', () => {
   assert.ok(Math.abs(yearFraction(OCT) - 0.767) < 0.01);
 });
 
-test('whittaker of order 3 reproduces a quadratic exactly', () => {
-  const y = Array.from({ length: 20 }, (_, i) => 3 + 2 * i + 0.5 * i * i);
-  const z = whittaker(y, 1e4, 3);
-  z.forEach((v, i) => assert.ok(Math.abs(v - y[i]!) < 1e-6));
+test('fitSCurve recovers a rising and a falling logistic', () => {
+  for (const truth of [
+    { b: 5, K: 80, k: 0.15, t0: 30 },
+    { b: 10, K: -60, k: 0.2, t0: 25 },
+  ]) {
+    const y = Array.from({ length: 60 }, (_, i) => scurveAt(truth, i));
+    const fit = fitSCurve(y, y.map(() => 1))!;
+    y.forEach((v, i) => assert.ok(Math.abs(scurveAt(fit, i) - v) < 0.05 * Math.abs(truth.K), `t=${i}`));
+    // and the extrapolation levels off rather than running away
+    assert.ok(Math.abs(scurveAt(fit, 90) - scurveAt(truth, 90)) < 0.1 * Math.abs(truth.K));
+  }
 });
 
 function monthsFrom(rate: (i: number) => number, fromYear: number, toYear: number, toMonth: number) {
@@ -128,5 +135,5 @@ test('papers too new or capped get no label', () => {
 });
 
 test('niceMax', () => {
-  assert.deepEqual([0, 1, 3, 7, 12, 99, 101, 1253].map(niceMax), [1, 1, 5, 10, 20, 100, 200, 2000]);
+  assert.deepEqual([0, 1, 3, 7, 12, 99, 101, 175, 1253, 2176].map(niceMax), [2, 2, 4, 8, 12, 100, 120, 200, 1600, 3000]);
 });

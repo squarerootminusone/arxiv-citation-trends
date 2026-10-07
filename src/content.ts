@@ -1,5 +1,5 @@
 // Mounts the citations-per-year widget on arXiv abstract pages.
-import { buildChart, chartModel, type ChartBar } from './chart.ts';
+import { PLOT_LEFT, buildChart, chartModel, emptyChart, type ChartBar } from './chart.ts';
 import { arxivIdFromPath, classifyTrend, fitYear } from './core.ts';
 import { PORT_NAME, type CitationData, type CitationReply, type CitationRequest } from './types.ts';
 
@@ -25,35 +25,44 @@ function mountPoint(): { parent: Element; before: Node | null } | null {
   return null;
 }
 
+/** Text width in the chip's font, so the chart can keep bars out from under it. */
+function textWidth(text: string, ref: Element): number {
+  const ctx = document.createElement('canvas').getContext('2d');
+  if (!ctx) return text.length * 7;
+  ctx.font = `600 11.5px ${getComputedStyle(ref).fontFamily}`;
+  return ctx.measureText(text).width;
+}
+
 class Widget {
   readonly root = h('div', 'act-box');
-  private readonly title = h('span', 'act-title', 'Citations');
-  private readonly head = h('div', 'act-head');
-  private readonly body = h('div', 'act-body');
+  private readonly title = h('h3', 'act-title', 'Citations');
+  private readonly plot = h('div', 'act-plot');
+  private readonly notes = h('div', 'act-notes');
   private readonly id: string;
   private port: chrome.runtime.Port | null = null;
   private rendered = false;
 
   constructor(id: string) {
     this.id = id;
-    this.head.append(this.title);
-    this.root.append(this.head, this.body);
+    this.root.append(this.title, this.plot, this.notes);
   }
 
   load(): void {
     this.port?.disconnect();
     this.rendered = false;
-    this.showStatus('Loading…');
+    this.showLoading();
     const port = chrome.runtime.connect({ name: PORT_NAME });
     this.port = port;
     let finished = false;
     port.onMessage.addListener((msg: CitationReply) => {
-      if (msg.type === 'progress') {
-        if (!this.rendered) this.showStatus(`Loading… ${msg.text}`);
-      } else if (msg.type === 'data') {
-        if (msg.data.complete) finished = true;
-        this.render(msg.data);
-      } else {
+      if (msg.type === 'data') {
+        if (msg.data.complete) {
+          finished = true;
+          this.render(msg.data);
+        } else if (!this.rendered) {
+          this.title.textContent = `${fmt(msg.data.total)} citations`;
+        }
+      } else if (msg.type === 'error') {
         finished = true;
         if (!this.rendered) this.showError(msg.message, msg.notFound);
       }
@@ -65,20 +74,18 @@ class Widget {
     port.postMessage(req);
   }
 
-  private setChip(chip: HTMLElement | null): void {
-    this.head.querySelector('.act-trend')?.remove();
-    if (chip) this.head.append(chip);
-  }
-
-  private showStatus(text: string): void {
+  /** The full chart frame with a spinner where the data will go. */
+  private showLoading(): void {
     this.title.textContent = 'Citations';
-    this.setChip(null);
-    this.body.replaceChildren(h('div', 'act-status', text));
+    this.notes.replaceChildren();
+    const overlay = h('div', 'act-overlay');
+    overlay.append(h('span', 'act-spinner'));
+    overlay.title = 'Loading citations from Semantic Scholar';
+    this.plot.replaceChildren(emptyChart(new Date()), overlay);
   }
 
   private showError(message: string, notFound: boolean): void {
-    this.setChip(null);
-    const box = h('div', 'act-status act-error', message);
+    const overlay = h('div', 'act-overlay act-error', message);
     if (!notFound) {
       const a = h('a', 'act-link', 'Retry');
       a.href = '#';
@@ -86,30 +93,22 @@ class Widget {
         e.preventDefault();
         this.load();
       });
-      box.append(' ', a);
+      overlay.append(' ', a);
     }
-    this.body.replaceChildren(box);
+    this.plot.replaceChildren(emptyChart(new Date()), overlay);
   }
 
   private render(data: CitationData): void {
     this.rendered = true;
     const now = new Date();
-    const fit = data.complete ? fitYear(data, now) : null;
+    const fit = fitYear(data, now);
     const totalText = `${fmt(data.total)} citations`;
     this.title.textContent = totalText;
 
-    let chip: HTMLElement;
-    let detail = '';
-    if (data.complete) {
-      const trend = classifyTrend(data.counts, { now, pubYear: data.pubYear, capped: data.capped, projected: fit?.projected ?? null });
-      chip = h('span', `act-trend act-${trend.label ?? 'none'}`);
-      chip.textContent = trend.label ? `${TREND_ICON[trend.label]} ${trend.text}` : trend.text;
-      chip.title = trend.detail;
-      detail = trend.detail;
-    } else {
-      chip = h('span', 'act-trend act-none', 'loading…');
-    }
-    this.setChip(chip);
+    const trend = classifyTrend(data.counts, { now, pubYear: data.pubYear, capped: data.capped, projected: fit?.projected ?? null });
+    const chip = h('span', `act-trend act-${trend.label ?? 'none'}`);
+    chip.textContent = trend.label ? `${TREND_ICON[trend.label]} ${trend.text}` : trend.text;
+    chip.title = trend.detail;
 
     const model = chartModel(data, fit, now);
     const describe = (b: ChartBar | null) => {
@@ -118,17 +117,16 @@ class Widget {
       if (b.projected !== null) return `${b.year}: ${n}, ~${fmt(b.projected)} by Dec`;
       return `${b.year}: ${n} citation${b.count === 1 ? '' : 's'}`;
     };
-    const svg = buildChart(model, (b) => {
+    const chipWidth = textWidth(chip.textContent, this.root) + 16;
+    const { svg, chipSide } = buildChart(model, chipWidth, (b) => {
       this.title.textContent = describe(b);
-      // The hovered year's readout gets the full header width.
-      chip.style.display = b ? 'none' : '';
     });
+    chip.classList.add(chipSide === 'left' ? 'act-chip-left' : 'act-chip-right');
+    if (chipSide === 'left') chip.style.left = `${PLOT_LEFT + 2}px`;
+    this.plot.replaceChildren(svg, chip);
 
-    const notes = h('div', 'act-notes');
-    if (detail) notes.append(h('div', '', detail));
-    if (model.earlier > 0) notes.append(h('div', '', `Plus ${fmt(model.earlier)} before ${model.bars[0]?.year}.`));
-    if (data.capped.length) notes.append(h('div', '', 'Hatched years have over 10,000 citations, the most the API lists.'));
-    this.body.replaceChildren(svg, notes);
+    this.notes.replaceChildren();
+    if (data.capped.length) this.notes.append(h('div', '', 'Hatched years have over 10,000 citations, the most the API lists.'));
   }
 }
 

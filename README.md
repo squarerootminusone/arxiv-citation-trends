@@ -15,20 +15,22 @@ Then open `chrome://extensions`, turn on Developer mode, click **Load unpacked**
 
 ## What the chart shows
 
-- Blue bars are citations per year, for the current year and up to five years back. The current year is lighter.
-- The orange curve is the smoothed monthly citation rate, annualised so it reads on the same axis as the bars. Its dashed tail is the extrapolation to December.
-- The dashed bar on the current year is the projected total by December.
-- Hovering a bar shows that year's count in the header.
+- Blue bars are citations per year for the last five years, zero where there were none.
+- The lighter blue cap on the current year is the expected rest of the year.
+- The orange curve is an S-curve fit of the monthly citation rate, annualised so it reads on the same axis as the bars. Its dashed tail is the extrapolation to December.
+- The trend label sits in whichever top corner of the chart has room; hover it for the numbers behind it.
+- Hovering a bar shows that year's count in the heading.
+- While loading, the same frame shows a spinner.
 
 ## Projection and trend label
 
 Monthly counts come from each citing paper's publication date. Each year's months are scaled up so they add to that year's full count, because a few citations have a year but no date. The current, partial month is left out.
 
-The curve is a Whittaker-Henderson smoother with a third-difference penalty, which leaves slope and curvature free and behaves like a local quadratic at the end. The extrapolation continues the last slope and curvature, damped each month so it cannot run away. The projection is the actual count through last month plus the extrapolated months.
+The curve is a four-parameter logistic, rate(t) = b + K·sigmoid(k·(t − t0)), fitted by weighted least squares. For a fixed steepness and midpoint the model is linear in b and K, so those are solved exactly while k and t0 are searched on a grid. Weights treat counts as Poisson-like and favour recent months (two-year half-life). A falling S (K < 0) fits declining papers. Because an S-curve levels off, the extrapolation cannot run away. The projection is the actual count through last month plus the fitted rate for the remaining months.
 
 The label compares the projected total with last year. **Trending up** needs at least +20% and 3 more citations a year; **trending down** needs at least −20% and 3 fewer; anything else is **flat**. Papers with too little data fall back to this year's pace, or to the last two full years before July. Papers published this year say "new paper".
 
-The model lives in `fitYear` and `classifyTrend` in `src/core.ts`. A backtest on the Fourier Neural Operator paper projected 1,301 for 2025 from October 2025; the actual count was 1,253.
+The model lives in `fitSCurve`, `fitYear` and `classifyTrend` in `src/core.ts`. A backtest on the Fourier Neural Operator paper projected 1,215 for 2025 from October 2025; the actual count was 1,253.
 
 ## Data and speed
 
@@ -54,7 +56,7 @@ npm run watch      # rebuild dist/ on change, then reload the extension
 | --- | --- |
 | `src/core.ts` | arXiv id parsing, bucketing, curve fit, projection, trend rule (pure, unit tested) |
 | `src/background.ts` | service worker: Semantic Scholar fetching, retries, cache |
-| `src/chart.ts` | SVG bars, curve and projected bar |
+| `src/chart.ts` | SVG frame, bars, curve, projected cap, trend label placement |
 | `src/content.ts` | widget on the abstract page |
 | `src/options.ts` | API key and cache reset |
 | `static/` | manifest, CSS, options page, icons |

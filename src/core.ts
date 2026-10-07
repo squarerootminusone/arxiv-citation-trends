@@ -11,11 +11,6 @@ const MIN_ABS_CHANGE = 3;
 /** Without a fit, use this year's annualised pace only once half the year has passed. */
 const PACE_MIN_YEAR_FRACTION = 0.5;
 
-/** Smoothing strength for the monthly curve; roughly a 3 to 4 month window. */
-const SMOOTH_LAMBDA = 1500;
-/** Damping of slope and curvature when extrapolating, per month. */
-const SLOPE_DAMP = 0.92;
-const CURVE_DAMP = 0.7;
 /** Fewer dated citations or months than this and the curve is noise. */
 const FIT_MIN_MONTHS = 6;
 const FIT_MIN_CITATIONS = 20;
@@ -85,62 +80,90 @@ export function yearFraction(now: Date): number {
   return (now.getTime() - start) / (end - start);
 }
 
+/** Logistic function. */
+const sigmoid = (x: number) => 1 / (1 + Math.exp(-x));
+
+export interface SCurve {
+  /** Baseline rate. */
+  b: number;
+  /** Rate change across the S (negative for a falling S). */
+  K: number;
+  /** Steepness per month. */
+  k: number;
+  /** Midpoint, in months from the first fitted month. */
+  t0: number;
+}
+
+export const scurveAt = (c: SCurve, t: number) => Math.max(0, c.b + c.K * sigmoid(c.k * (t - c.t0)));
+
 /**
- * Whittaker-Henderson smoother: minimises |y - z|^2 + lambda |D z|^2 where D takes
- * `order`-th differences. Order 3 keeps slope and curvature free and penalises only
- * changes in curvature, so the ends behave like a local quadratic.
+ * Fits rate(t) = b + K * sigmoid(k (t - t0)) by weighted least squares. For fixed
+ * (k, t0) the model is linear in (b, K), so those are solved exactly while k and t0
+ * are searched on a grid, then refined on a finer one. The rate is kept at or
+ * above zero across the fitted range.
  */
-export function whittaker(y: readonly number[], lambda: number, order = 3): number[] {
+export function fitSCurve(y: readonly number[], w: readonly number[]): SCurve | null {
   const n = y.length;
-  if (n <= order) return [...y];
-  // Difference coefficients, e.g. order 3: [-1, 3, -3, 1].
-  let coef = [1];
-  for (let k = 0; k < order; k++) {
-    const next = new Array<number>(coef.length + 1).fill(0);
-    coef.forEach((c, i) => {
-      next[i] = (next[i] ?? 0) - c;
-      next[i + 1] = (next[i + 1] ?? 0) + c;
-    });
-    coef = next;
-  }
-  // A = I + lambda * D^T D (dense; n is at most a few hundred).
-  const A: number[][] = Array.from({ length: n }, (_, i) => Array.from({ length: n }, (_, j) => (i === j ? 1 : 0)));
-  for (let r = 0; r + order < n; r++) {
-    for (let a = 0; a <= order; a++) {
-      for (let b = 0; b <= order; b++) {
-        A[r + a]![r + b]! += lambda * coef[a]! * coef[b]!;
+  if (n < 3) return null;
+  let best: (SCurve & { sse: number }) | null = null;
+
+  const tryFit = (k: number, t0: number) => {
+    let sw = 0, sg = 0, sgg = 0, sy = 0, sgy = 0;
+    const g: number[] = [];
+    for (let i = 0; i < n; i++) {
+      const gi = sigmoid(k * (i - t0));
+      g.push(gi);
+      const wi = w[i]!;
+      sw += wi; sg += wi * gi; sgg += wi * gi * gi; sy += wi * y[i]!; sgy += wi * gi * y[i]!;
+    }
+    const det = sw * sgg - sg * sg;
+    let b: number, K: number;
+    if (Math.abs(det) > 1e-12 * sw * sgg) {
+      b = (sgg * sy - sg * sgy) / det;
+      K = (sw * sgy - sg * sy) / det;
+    } else {
+      b = sy / sw;
+      K = 0;
+    }
+    // Keep the rate non-negative at both ends of the S.
+    const gmin = Math.min(...g), gmax = Math.max(...g);
+    if (b + K * gmin < 0 || b + K * gmax < 0) {
+      // Pin the low end at zero: rate = K * (g - gLow) where gLow is the low end.
+      const gl = K >= 0 ? gmin : gmax;
+      let num = 0, den = 0;
+      for (let i = 0; i < n; i++) {
+        const d = g[i]! - gl;
+        num += w[i]! * d * y[i]!;
+        den += w[i]! * d * d;
       }
+      K = den > 0 ? num / den : 0;
+      b = -K * gl;
     }
-  }
-  // Cholesky solve.
-  const L: number[][] = Array.from({ length: n }, () => new Array<number>(n).fill(0));
-  for (let i = 0; i < n; i++) {
-    for (let j = Math.max(0, i - order); j <= i; j++) {
-      let s = A[i]![j]!;
-      for (let k = Math.max(0, i - order); k < j; k++) s -= L[i]![k]! * L[j]![k]!;
-      L[i]![j] = i === j ? Math.sqrt(s) : s / L[j]![j]!;
+    let sse = 0;
+    for (let i = 0; i < n; i++) {
+      const r = y[i]! - (b + K * g[i]!);
+      sse += w[i]! * r * r;
     }
+    if (!best || sse < best.sse) best = { b, K, k, t0, sse };
+  };
+
+  const ks = [0.02, 0.035, 0.05, 0.07, 0.1, 0.14, 0.2, 0.28, 0.4];
+  for (const k of ks) for (let t0 = -24; t0 <= n + 24; t0 += 1) tryFit(k, t0);
+  const coarse = best as (SCurve & { sse: number }) | null;
+  if (!coarse) return null;
+  for (let f = 0.7; f <= 1.45; f += 0.05) {
+    for (let d = -1.5; d <= 1.5; d += 0.25) tryFit(coarse.k * f, coarse.t0 + d);
   }
-  const t = new Array<number>(n).fill(0);
-  for (let i = 0; i < n; i++) {
-    let s = y[i]!;
-    for (let k = Math.max(0, i - order); k < i; k++) s -= L[i]![k]! * t[k]!;
-    t[i] = s / L[i]![i]!;
-  }
-  const z = new Array<number>(n).fill(0);
-  for (let i = n - 1; i >= 0; i--) {
-    let s = t[i]!;
-    for (let k = i + 1; k <= Math.min(n - 1, i + order); k++) s -= L[k]![i]! * z[k]!;
-    z[i] = s / L[i]![i]!;
-  }
-  return z;
+  const { b, K, k, t0 } = best as unknown as SCurve;
+  // A falling S is the same curve with k < 0; normalise so k is always positive.
+  return { b, K, k, t0 };
 }
 
 /**
- * Fits a smooth monthly citation rate and extrapolates it to December.
+ * Fits an S-curve to the monthly citation rate and extrapolates it to December.
  * Months use dated citations only, scaled per year so each year's months add up to
  * that year's full count. The current, partial month is left out of the fit.
- * The extrapolation continues the curve's last slope and curvature, both damped.
+ * An S-curve rises (or falls) and then levels off, so the extrapolation cannot run away.
  */
 export function fitYear(
   data: { counts: Record<number, number>; months: Record<string, number>; capped: readonly number[]; firstYear: number },
@@ -189,20 +212,22 @@ export function fitYear(
   }
   if (raw < FIT_MIN_CITATIONS) return null;
 
-  const z = whittaker(series, SMOOTH_LAMBDA, 3);
-  const smooth = z.map((v) => Math.max(0, v));
-  const zn = z[n - 1]!, z1 = z[n - 2]!, z2 = z[n - 3]!;
-  let slope = zn - z1;
-  const curve = zn - 2 * z1 + z2;
-  let rate = Math.max(0, zn);
+  // Poisson-like weights from a 3-month average, plus a mild preference for
+  // recent months (2-year half-life) since the projection is about now.
+  const weights = series.map((_, i) => {
+    const lo = Math.max(0, i - 1), hi = Math.min(n - 1, i + 1);
+    let m = 0;
+    for (let j = lo; j <= hi; j++) m += series[j]!;
+    m /= hi - lo + 1;
+    return 0.5 ** ((n - 1 - i) / 24) / Math.max(2, m);
+  });
+  const curve = fitSCurve(series, weights);
+  if (!curve) return null;
+  const smooth = series.map((_, i) => scurveAt(curve, i));
 
   const remaining = endY < Y ? 12 : 11 - endM;
   const future: number[] = [];
-  for (let k = 1; k <= remaining; k++) {
-    slope = SLOPE_DAMP * slope + curve * CURVE_DAMP ** k;
-    rate = Math.max(0, rate + slope);
-    future.push(rate);
-  }
+  for (let k = 1; k <= remaining; k++) future.push(scurveAt(curve, n - 1 + k));
 
   let soFar = 0;
   if (endY === Y) for (let m = 0; m <= endM; m++) soFar += data.months[monthKey(Y, m)] ?? 0;
@@ -270,10 +295,10 @@ export function classifyTrend(
 
 const fmt = (n: number) => Math.round(n).toLocaleString('en-US');
 
-/** Rounds an axis maximum up to 1, 2 or 5 times a power of ten. */
+/** Rounds an axis maximum up to a round number with an even half (for the middle gridline). */
 export function niceMax(v: number): number {
-  if (v <= 0) return 1;
+  if (v <= 1) return 2;
   const p = 10 ** Math.floor(Math.log10(v));
-  for (const m of [1, 2, 5, 10]) if (m * p >= v) return m * p;
+  for (const m of [1, 1.2, 1.6, 2, 3, 4, 5, 6, 8, 10]) if (m * p >= v && Number.isInteger((m * p) / 2)) return m * p;
   return 10 * p;
 }

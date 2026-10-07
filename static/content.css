@@ -1,11 +1,10 @@
 /* Widget on arXiv abstract pages, styled like arXiv's own sidebar boxes.
    Everything is prefixed act- to stay clear of arXiv's styles. */
 .act-box {
-  --act-fg: #222;
+  --act-fg: #000;
   --act-muted: #666;
   --act-bar: #3b6fd8;
-  --act-bar-partial: #9db8ee;
-  --act-projected-fill: rgba(59, 111, 216, 0.1);
+  --act-projected: #b9cdf3;
   --act-curve: #e8590c;
   --act-grid: #e6e6e6;
   --act-up-fg: #116329;
@@ -15,54 +14,75 @@
   --act-flat-fg: #444;
   --act-flat-bg: #ececec;
   margin: 0;
-  padding: 8px 12.96px 9px;
+  padding: 6px 12.96px 8px;
   border: 0;
   border-left: 4px solid #ddd;
   border-bottom: 3px solid #ddd;
   font-size: 12.96px;
-  line-height: 1.35;
   color: var(--act-fg);
   background: transparent;
 }
-.act-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  height: 20px;
-  margin-bottom: 4px;
-}
-/* The title also shows the hovered year; it truncates rather than moving the chip. */
-.act-title {
-  min-width: 0;
+/* Same as arXiv's sidebar headings ("References & Citations"). The title also shows
+   the hovered year, so it truncates instead of wrapping. */
+.act-box .act-title {
+  margin: 0 0 4.8px;
+  font-size: 16px;
+  font-weight: 400;
+  line-height: normal;
+  font-family: inherit;
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
-  font-weight: bold;
   font-variant-numeric: tabular-nums;
 }
+.act-plot { position: relative; width: max-content; }
 .act-trend {
-  flex: none;
+  position: absolute;
+  top: 0;
   padding: 1px 7px;
   border-radius: 10px;
   font-weight: 600;
   font-size: 11.5px;
+  line-height: 16px;
   white-space: nowrap;
   cursor: help;
 }
+.act-chip-right { right: 0; }
 .act-up { color: var(--act-up-fg); background: var(--act-up-bg); }
 .act-down { color: var(--act-down-fg); background: var(--act-down-bg); }
 .act-flat, .act-none { color: var(--act-flat-fg); background: var(--act-flat-bg); }
-.act-none { font-weight: 500; cursor: default; }
-.act-status { margin: 2px 0; color: var(--act-muted); min-height: 2.7em; }
+.act-none { font-weight: 500; }
+/* Spinner and errors sit over the plot area of an empty frame. */
+.act-overlay {
+  position: absolute;
+  left: 31px;
+  right: 0;
+  top: 6px;
+  bottom: 17px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: var(--act-muted);
+  font-size: 11.5px;
+  padding: 0 6px;
+}
 .act-error { color: var(--act-down-fg); }
+.act-spinner {
+  width: 18px;
+  height: 18px;
+  border: 2.5px solid var(--act-grid);
+  border-top-color: var(--act-bar);
+  border-radius: 50%;
+  animation: act-spin 0.8s linear infinite;
+}
+@keyframes act-spin { to { transform: rotate(360deg); } }
 .act-chart { display: block; overflow: visible; }
 .act-bar { fill: var(--act-bar); }
-.act-partial { fill: var(--act-bar-partial); }
+.act-projected { fill: var(--act-projected); }
 .act-capped { fill: url(#act-hatch); }
-.act-hatch-bg { fill: var(--act-bar-partial); }
+.act-hatch-bg { fill: var(--act-projected); }
 .act-hatch-line { stroke: var(--act-bar); stroke-width: 2.5; }
-.act-projected { fill: var(--act-projected-fill); stroke: var(--act-bar); stroke-width: 1; stroke-dasharray: 3 2; }
 .act-curve { fill: none; stroke: var(--act-curve); stroke-width: 1.75; stroke-linejoin: round; stroke-linecap: round; }
 .act-curve-future { stroke-dasharray: 3 3; }
 .act-hit { fill: transparent; }
@@ -70,7 +90,8 @@
 .act-grid { stroke: var(--act-grid); stroke-width: 1; }
 .act-axis { stroke: #999; stroke-width: 1; }
 .act-tick, .act-year { fill: var(--act-muted); font-size: 10px; font-variant-numeric: tabular-nums; }
+.act-tick { text-anchor: end; }
 .act-year { text-anchor: middle; }
-.act-notes { margin-top: 5px; color: var(--act-muted); font-size: 11px; }
+.act-notes { margin-top: 4px; color: var(--act-muted); font-size: 11px; }
 .act-notes:empty { display: none; }
 .act-link { color: inherit; text-decoration: underline; }
