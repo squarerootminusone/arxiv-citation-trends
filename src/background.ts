@@ -13,7 +13,13 @@ const STALE_MS = 30 * 24 * 3600 * 1000;
 const PAGE = 1000;
 /** Pages fetched at once. The anonymous limit is a shared pool, so a few parallel tries finish sooner. */
 const CONCURRENCY = 3;
-const MAX_ATTEMPTS = 30;
+/** With an API key the limit is 1 request per second for this key: go one at a time, spaced out. */
+const KEYED_CONCURRENCY = 1;
+const KEYED_INTERVAL_MS = 1100;
+/** Exponential backoff: 1 s, 2 s, 4 s ... capped at 32 s, with jitter; about 2 minutes in total. */
+const MAX_ATTEMPTS = 9;
+const BACKOFF_BASE_MS = 1000;
+const BACKOFF_CAP_MS = 32_000;
 const RETRY_STATUSES = new Set([429, 500, 502, 503, 504]);
 const CITE_FIELDS = 'year,publicationDate';
 
@@ -48,12 +54,32 @@ async function apiKey(): Promise<string> {
   }
 }
 
+/** Start time of the last keyed request, shared by every job in this worker. */
+let lastKeyedStart = 0;
+async function paceKeyed(): Promise<void> {
+  const wait = lastKeyedStart + KEYED_INTERVAL_MS - Date.now();
+  lastKeyedStart = Math.max(Date.now(), lastKeyedStart + KEYED_INTERVAL_MS);
+  if (wait > 0) await sleep(wait);
+}
+
 /**
- * GET with retry on 429/5xx. Retries come quickly (about 1 to 4 s): a 429 here means
- * the shared anonymous pool was full at that instant, not that this client is too fast.
+ * Shared backoff: when any request is refused, every request in this worker waits
+ * until this time, so parallel pages do not keep hitting an overloaded API.
  */
+let backoffUntil = 0;
+
+/** Exponential backoff with "equal jitter": half the step fixed, half random. */
+function backoffMs(attempt: number): number {
+  const step = Math.min(BACKOFF_CAP_MS, BACKOFF_BASE_MS * 2 ** attempt);
+  return step / 2 + Math.random() * (step / 2);
+}
+
+/** GET with exponential backoff on 429/5xx and network errors; honours Retry-After. */
 async function s2<T>(path: string, key: string, say: Say): Promise<T> {
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    const hold = backoffUntil - Date.now();
+    if (hold > 0) await sleep(hold);
+    if (key) await paceKeyed();
     let res: Response | null = null;
     try {
       res = await fetch(API + path, { headers: key ? { 'x-api-key': key } : {} });
@@ -64,9 +90,9 @@ async function s2<T>(path: string, key: string, say: Say): Promise<T> {
     if (res?.status === 404) throw new NotFound('Not on Semantic Scholar yet');
     if (res && !RETRY_STATUSES.has(res.status)) throw new Error(`Semantic Scholar returned HTTP ${res.status}`);
     const retryAfter = Number(res?.headers.get('retry-after'));
-    const wait = retryAfter > 0 ? retryAfter * 1000 : Math.min(4000, 800 * 1.3 ** attempt) + Math.random() * 400;
+    const wait = retryAfter > 0 ? retryAfter * 1000 : backoffMs(attempt);
+    backoffUntil = Math.max(backoffUntil, Date.now() + wait);
     say(res?.status === 429 ? 'waiting for the API' : 'API busy, retrying');
-    await sleep(wait);
   }
   throw new Error(
     key ? 'Semantic Scholar kept refusing requests' : 'Semantic Scholar is overloaded. A free API key in the extension options helps.',
@@ -143,7 +169,7 @@ async function compute(id: string, say: Say, emit: Emit): Promise<CitationData> 
         emit(snapshot(rows(), false));
       });
     }
-    await pool(tasks, CONCURRENCY);
+    await pool(tasks, key ? KEYED_CONCURRENCY : CONCURRENCY);
     return snapshot(rows(), true);
   }
 
@@ -172,7 +198,7 @@ async function compute(id: string, say: Say, emit: Emit): Promise<CitationData> 
       emit(snapshot(merged(), false, [...capped]));
     });
   }
-  await pool(tasks, CONCURRENCY);
+  await pool(tasks, key ? KEYED_CONCURRENCY : CONCURRENCY);
   const listed = merged().length;
   const final = snapshot(merged(), true, capped.sort());
   // Citations the per-year lists never return (no year) are the gap to the total.

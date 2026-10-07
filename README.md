@@ -36,7 +36,8 @@ Counts come from the [Semantic Scholar Graph API](https://api.semanticscholar.or
 
 - One request returns the paper and its newest 1,000 citations, which covers most papers.
 - Larger papers page through the rest, three pages at a time, and the chart fills in as pages arrive.
-- Anonymous requests share a rate-limit pool, so the extension retries every one to four seconds.
+- Refused requests (429, 5xx) get exponential backoff with jitter (1 s doubling to 32 s), honour Retry-After, and pause all parallel requests together.
+- With an API key, requests go one at a time, at least 1.1 s apart, inside the 1 request per second limit.
 - Results are cached. Anything under a day old is shown without a request; older data is shown at once and refreshed in the background.
 - A free [Semantic Scholar API key](https://www.semanticscholar.org/product/api#api-key-form) in the options avoids the shared pool.
 
