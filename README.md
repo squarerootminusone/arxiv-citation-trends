@@ -1,3 +1,5 @@
+<img src="static/icons/icon128.png" width="64" alt="">
+
 # arXiv Citation Trends
 
 Citations per year on every arXiv abstract page, with a projection for this year and a trend label.

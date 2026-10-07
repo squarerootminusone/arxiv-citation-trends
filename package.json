@@ -9,7 +9,8 @@
     "watch": "node scripts/build.ts --watch",
     "typecheck": "tsc --noEmit",
     "test": "node --test 'test/**/*.test.ts'",
-    "check": "npm run typecheck && npm test && npm run build"
+    "check": "npm run typecheck && npm test && npm run build",
+    "package": "npm run check && rm -f arxiv-citation-trends.zip && cd dist && zip -qr ../arxiv-citation-trends.zip ."
   },
   "devDependencies": {
     "@types/chrome": "^0.3.4",
