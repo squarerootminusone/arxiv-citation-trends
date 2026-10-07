@@ -1,36 +1,46 @@
-/* Widget on arXiv abstract pages. Everything is prefixed act- to stay clear of arXiv's styles. */
+/* Widget on arXiv abstract pages, styled like arXiv's own sidebar boxes.
+   Everything is prefixed act- to stay clear of arXiv's styles. */
 .act-box {
   --act-fg: #222;
   --act-muted: #666;
-  --act-bar: #777;
-  --act-bar-hover: #333;
-  --act-bar-partial: #b5b5b5;
-  --act-grid: #e3e3e3;
-  --act-border: #ddd;
+  --act-bar: #3b6fd8;
+  --act-bar-partial: #9db8ee;
+  --act-projected-fill: rgba(59, 111, 216, 0.1);
+  --act-curve: #e8590c;
+  --act-grid: #e6e6e6;
   --act-up-fg: #116329;
   --act-up-bg: #dcf5e3;
   --act-down-fg: #a40e26;
   --act-down-bg: #fde4e7;
   --act-flat-fg: #444;
   --act-flat-bg: #ececec;
-  margin: 0.8em 0 1em;
-  padding: 8px 10px 7px;
-  border: 1px solid var(--act-border);
-  border-radius: 6px;
-  font: 12px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  margin: 0;
+  padding: 8px 12.96px 9px;
+  border: 0;
+  border-left: 4px solid #ddd;
+  border-bottom: 3px solid #ddd;
+  font-size: 12.96px;
+  line-height: 1.35;
   color: var(--act-fg);
   background: transparent;
-  max-width: 420px;
-  box-sizing: border-box;
 }
 .act-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  min-height: 20px;
+  height: 20px;
+  margin-bottom: 4px;
 }
-.act-title { font-weight: 600; font-size: 13px; }
+/* The title also shows the hovered year; it truncates rather than moving the chip. */
+.act-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: bold;
+  font-variant-numeric: tabular-nums;
+}
 .act-trend {
   flex: none;
   padding: 1px 7px;
@@ -43,18 +53,8 @@
 .act-up { color: var(--act-up-fg); background: var(--act-up-bg); }
 .act-down { color: var(--act-down-fg); background: var(--act-down-bg); }
 .act-flat, .act-none { color: var(--act-flat-fg); background: var(--act-flat-bg); }
-.act-none { font-weight: 500; }
-/* One fixed-height line, so hovering never shifts the chart. */
-.act-readout {
-  height: 17px;
-  margin: 3px 0 2px;
-  color: var(--act-muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-variant-numeric: tabular-nums;
-}
-.act-status { margin: 6px 0 2px; color: var(--act-muted); min-height: 2.7em; }
+.act-none { font-weight: 500; cursor: default; }
+.act-status { margin: 2px 0; color: var(--act-muted); min-height: 2.7em; }
 .act-error { color: var(--act-down-fg); }
 .act-chart { display: block; overflow: visible; }
 .act-bar { fill: var(--act-bar); }
@@ -62,13 +62,15 @@
 .act-capped { fill: url(#act-hatch); }
 .act-hatch-bg { fill: var(--act-bar-partial); }
 .act-hatch-line { stroke: var(--act-bar); stroke-width: 2.5; }
+.act-projected { fill: var(--act-projected-fill); stroke: var(--act-bar); stroke-width: 1; stroke-dasharray: 3 2; }
+.act-curve { fill: none; stroke: var(--act-curve); stroke-width: 1.75; stroke-linejoin: round; stroke-linecap: round; }
+.act-curve-future { stroke-dasharray: 3 3; }
 .act-hit { fill: transparent; }
 .act-hit:hover { fill: rgba(127, 127, 127, 0.08); }
 .act-grid { stroke: var(--act-grid); stroke-width: 1; }
-.act-axis { stroke: var(--act-muted); stroke-width: 1; }
+.act-axis { stroke: #999; stroke-width: 1; }
 .act-tick, .act-year { fill: var(--act-muted); font-size: 10px; font-variant-numeric: tabular-nums; }
 .act-year { text-anchor: middle; }
-.act-notes { margin-top: 4px; color: var(--act-muted); font-size: 11px; }
-.act-foot { margin-top: 5px; color: var(--act-muted); font-size: 10.5px; }
-.act-foot:empty { display: none; }
+.act-notes { margin-top: 5px; color: var(--act-muted); font-size: 11px; }
+.act-notes:empty { display: none; }
 .act-link { color: inherit; text-decoration: underline; }

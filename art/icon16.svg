@@ -1,9 +1,11 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" shape-rendering="geometricPrecision">
-  <!-- simplified scroll for the 16px toolbar size: no text lines, flat rolls -->
-  <rect x="3" y="2.5" width="9" height="11" fill="#f1dfae" stroke="#7a5a26"/>
-  <rect x="1.5" y="1.5" width="12" height="2.5" rx="1.2" fill="#d9b86e" stroke="#7a5a26"/>
-  <rect x="1.5" y="12" width="12" height="2.5" rx="1.2" fill="#d9b86e" stroke="#7a5a26"/>
-  <polyline points="1.5,12 5,8.5 7,10.5 11,6" fill="none" stroke="#0b3d1c" stroke-width="3.2" stroke-linejoin="round" stroke-linecap="round"/>
-  <polyline points="1.5,12 5,8.5 7,10.5 11,6" fill="none" stroke="#22c55e" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/>
-  <polygon points="15.5,0.5 15,7.5 8.5,2" fill="#22c55e" stroke="#0b3d1c" stroke-width="0.9" stroke-linejoin="round"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">
+  <!-- simplified curled scroll for the 16px toolbar size: no text lines, bold arrow -->
+  <g transform="rotate(-8 8 8)">
+    <path d="M4 3 H13 V12 C13 13.5 12 14.5 10.5 14.5 H2.5 C3.5 14.5 4 13.5 4 12.5 Z" fill="#f3e3bb" stroke="#6b4a1f" stroke-width="1" stroke-linejoin="round"/>
+    <path d="M4 3 C4 2 5 1.5 6 1.5 H14 C15 1.5 15.2 2.3 15.2 2.8 C15.2 3.6 14.5 4 13.6 4 H13" fill="#dcbd78" stroke="#6b4a1f" stroke-width="1" stroke-linejoin="round"/>
+    <path d="M2.5 14.5 C1.6 14.5 1.2 13.8 1.2 13.2 C1.2 12.5 1.7 12 2.4 12 C3.2 12 3.5 12.6 3.5 13" fill="#dcbd78" stroke="#6b4a1f" stroke-width="1"/>
+  </g>
+  <polyline points="1.8,12.6 5,9.3 7,11 11,6.4" fill="none" stroke="#4a1a00" stroke-width="3.3" stroke-linejoin="round" stroke-linecap="round"/>
+  <polyline points="1.8,12.6 5,9.3 7,11 11,6.4" fill="none" stroke="#e8590c" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/>
+  <polygon points="15.4,1.4 14.6,8.2 8.6,3.2" fill="#e8590c" stroke="#4a1a00" stroke-width="0.9" stroke-linejoin="round"/>
 </svg>
