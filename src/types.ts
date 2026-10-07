@@ -15,6 +15,8 @@ export interface CitationData {
   counts: Record<number, number>;
   /** "YYYY-MM" -> citations with a publication date in that month */
   months: Record<string, number>;
+  /** True when `months` covers every citation; otherwise the fit uses yearly totals. */
+  monthsComplete: boolean;
   /** Years whose count hit the API's 10k list cap, so the true count is higher. */
   capped: number[];
   /** Citations with no year, or a year before submission or in the future. */
@@ -37,7 +39,7 @@ export interface YearFit {
   startMonth: number;
   /** Fitted citations per month, one per month up to the last complete month. */
   smooth: number[];
-  /** Extrapolated citations per month for the rest of the current year. */
+  /** Extrapolated citations per month from the month after `smooth` ends through December. */
   future: number[];
   /** Expected citations for the whole current year. */
   projected: number;

@@ -97,143 +97,193 @@ export interface SCurve {
 export const scurveAt = (c: SCurve, t: number) => Math.max(0, c.b + c.K * sigmoid(c.k * (t - c.t0)));
 
 /**
- * Fits rate(t) = b + K * sigmoid(k (t - t0)) by weighted least squares. For fixed
- * (k, t0) the model is linear in (b, K), so those are solved exactly while k and t0
- * are searched on a grid, then refined on a finer one. The rate is kept at or
- * above zero across the fitted range.
+ * One observation: a citation count summed over some months. `cells` lists
+ * (month index, fraction of that month) pairs; a single month is [[t, 1]], a year
+ * is twelve cells, and the current month counts only the part that has passed.
+ * The model rate is evaluated at month midpoints.
  */
-export function fitSCurve(y: readonly number[], w: readonly number[]): SCurve | null {
-  const n = y.length;
-  if (n < 3) return null;
+export interface Obs {
+  cells: Array<[number, number]>;
+  y: number;
+  w: number;
+}
+
+/**
+ * Fits rate(t) = b + K * sigmoid(k (t - t0)) to interval counts by weighted least
+ * squares. For fixed (k, t0) every observation is linear in (b, K), so those are
+ * solved exactly while k and t0 are searched on a grid, then refined on a finer
+ * one. The rate is kept at or above zero over months [0, span).
+ */
+export function fitSCurve(obs: readonly Obs[], span: number): SCurve | null {
+  if (obs.length < 2 || span < 2) return null;
   let best: (SCurve & { sse: number }) | null = null;
 
   const tryFit = (k: number, t0: number) => {
-    let sw = 0, sg = 0, sgg = 0, sy = 0, sgy = 0;
-    const g: number[] = [];
-    for (let i = 0; i < n; i++) {
-      const gi = sigmoid(k * (i - t0));
-      g.push(gi);
-      const wi = w[i]!;
-      sw += wi; sg += wi * gi; sgg += wi * gi * gi; sy += wi * y[i]!; sgy += wi * gi * y[i]!;
+    const sig = (t: number) => sigmoid(k * (t + 0.5 - t0));
+    let sLL = 0, sLG = 0, sGG = 0, sLY = 0, sGY = 0;
+    const L: number[] = [], G: number[] = [];
+    for (const o of obs) {
+      let l = 0, g = 0;
+      for (const [t, f] of o.cells) {
+        l += f;
+        g += f * sig(t);
+      }
+      L.push(l);
+      G.push(g);
+      sLL += o.w * l * l; sLG += o.w * l * g; sGG += o.w * g * g; sLY += o.w * l * o.y; sGY += o.w * g * o.y;
     }
-    const det = sw * sgg - sg * sg;
+    const det = sLL * sGG - sLG * sLG;
     let b: number, K: number;
-    if (Math.abs(det) > 1e-12 * sw * sgg) {
-      b = (sgg * sy - sg * sgy) / det;
-      K = (sw * sgy - sg * sy) / det;
+    if (Math.abs(det) > 1e-12 * sLL * sGG) {
+      b = (sGG * sLY - sLG * sGY) / det;
+      K = (sLL * sGY - sLG * sLY) / det;
     } else {
-      b = sy / sw;
+      b = sLY / sLL;
       K = 0;
     }
-    // Keep the rate non-negative at both ends of the S.
-    const gmin = Math.min(...g), gmax = Math.max(...g);
-    if (b + K * gmin < 0 || b + K * gmax < 0) {
-      // Pin the low end at zero: rate = K * (g - gLow) where gLow is the low end.
-      const gl = K >= 0 ? gmin : gmax;
+    // Keep the rate non-negative over the whole span: sigmoid is monotone, so check the ends.
+    const s0 = sig(0), s1 = sig(span - 1);
+    const lo = Math.min(s0, s1), hi = Math.max(s0, s1);
+    if (b + K * lo < 0 || b + K * hi < 0) {
+      // Pin the low end of the S at zero: rate = K (sigmoid - sLow).
+      const sl = K >= 0 ? lo : hi;
       let num = 0, den = 0;
-      for (let i = 0; i < n; i++) {
-        const d = g[i]! - gl;
-        num += w[i]! * d * y[i]!;
-        den += w[i]! * d * d;
-      }
+      obs.forEach((o, j) => {
+        const d = G[j]! - sl * L[j]!;
+        num += o.w * d * o.y;
+        den += o.w * d * d;
+      });
       K = den > 0 ? num / den : 0;
-      b = -K * gl;
+      b = -K * sl;
     }
     let sse = 0;
-    for (let i = 0; i < n; i++) {
-      const r = y[i]! - (b + K * g[i]!);
-      sse += w[i]! * r * r;
-    }
+    obs.forEach((o, j) => {
+      const r = o.y - (b * L[j]! + K * G[j]!);
+      sse += o.w * r * r;
+    });
     if (!best || sse < best.sse) best = { b, K, k, t0, sse };
   };
 
   const ks = [0.02, 0.035, 0.05, 0.07, 0.1, 0.14, 0.2, 0.28, 0.4];
-  for (const k of ks) for (let t0 = -24; t0 <= n + 24; t0 += 1) tryFit(k, t0);
+  for (const k of ks) for (let t0 = -24; t0 <= span + 24; t0 += 1) tryFit(k, t0);
   const coarse = best as (SCurve & { sse: number }) | null;
   if (!coarse) return null;
   for (let f = 0.7; f <= 1.45; f += 0.05) {
     for (let d = -1.5; d <= 1.5; d += 0.25) tryFit(coarse.k * f, coarse.t0 + d);
   }
   const { b, K, k, t0 } = best as unknown as SCurve;
-  // A falling S is the same curve with k < 0; normalise so k is always positive.
   return { b, K, k, t0 };
 }
 
+const recency = (monthsAgo: number) => 0.5 ** (monthsAgo / 24);
+
 /**
- * Fits an S-curve to the monthly citation rate and extrapolates it to December.
- * Months use dated citations only, scaled per year so each year's months add up to
- * that year's full count. The current, partial month is left out of the fit.
+ * Fits an S-curve to the citation rate and extrapolates it to December.
+ *
+ * With complete monthly data, each month is one observation. Months use dated
+ * citations only, scaled per year so each year's months add up to that year's full
+ * count, and the current partial month is left out.
+ *
+ * With only yearly totals (very highly cited papers), each full year is one
+ * observation and this year so far is another, covering the elapsed fraction.
+ *
+ * Weights treat counts as Poisson-like and favour recent data (2-year half-life).
  * An S-curve rises (or falls) and then levels off, so the extrapolation cannot run away.
  */
 export function fitYear(
-  data: { counts: Record<number, number>; months: Record<string, number>; capped: readonly number[]; firstYear: number },
+  data: {
+    counts: Record<number, number>;
+    months: Record<string, number>;
+    monthsComplete: boolean;
+    capped: readonly number[];
+    firstYear: number;
+  },
   now: Date,
 ): YearFit | null {
   const Y = now.getUTCFullYear();
   const M = now.getUTCMonth();
   if (data.capped.includes(Y) || data.capped.includes(Y - 1)) return null;
+  const nowIdx = Y * 12 + M;
+  const monthStart = Date.UTC(Y, M, 1);
+  const elapsed = (now.getTime() - monthStart) / (Date.UTC(Y, M + 1, 1) - monthStart);
+  const firstIdx = Math.max(data.firstYear * 12, (Y - 7) * 12);
 
-  const monthsSum = (y: number) => {
-    let s = 0;
-    for (let m = 0; m < 12; m++) s += data.months[monthKey(y, m)] ?? 0;
-    return s;
-  };
-  const scaleCache = new Map<number, number>();
-  const scale = (y: number) => {
-    let s = scaleCache.get(y);
-    if (s === undefined) {
-      const dated = monthsSum(y);
-      s = dated > 0 ? Math.min(2, Math.max(1, (data.counts[y] ?? 0) / dated)) : 1;
-      scaleCache.set(y, s);
+  if (data.monthsComplete) {
+    const monthsSum = (y: number) => {
+      let s = 0;
+      for (let m = 0; m < 12; m++) s += data.months[monthKey(y, m)] ?? 0;
+      return s;
+    };
+    const scaleCache = new Map<number, number>();
+    const scale = (y: number) => {
+      let v = scaleCache.get(y);
+      if (v === undefined) {
+        const dated = monthsSum(y);
+        // Yearly totals can come from a different index than the dates, so allow either direction.
+        v = dated > 0 ? Math.min(2, Math.max(0.5, (data.counts[y] ?? 0) / dated)) : 1;
+        scaleCache.set(y, v);
+      }
+      return v;
+    };
+    const endIdx = nowIdx - 1; // last complete month
+    let startIdx = firstIdx;
+    while (startIdx <= endIdx && (data.months[monthKey(Math.floor(startIdx / 12), startIdx % 12)] ?? 0) === 0) startIdx++;
+    const n = endIdx - startIdx + 1;
+    if (n < FIT_MIN_MONTHS) return null;
+
+    const series: number[] = [];
+    let raw = 0;
+    for (let i = startIdx; i <= endIdx; i++) {
+      const y = Math.floor(i / 12);
+      const v = data.months[monthKey(y, i % 12)] ?? 0;
+      raw += v;
+      series.push(v * scale(y));
     }
-    return s;
-  };
-
-  // Last complete month, then walk back to the first month with data.
-  let endY = Y, endM = M - 1;
-  if (endM < 0) { endY--; endM = 11; }
-  const endIdx = endY * 12 + endM;
-  let startIdx = Math.max(data.firstYear * 12, endIdx - FIT_MAX_MONTHS + 1);
-  while (startIdx <= endIdx) {
-    const y = Math.floor(startIdx / 12);
-    if ((data.months[monthKey(y, startIdx % 12)] ?? 0) > 0) break;
-    startIdx++;
+    if (raw < FIT_MIN_CITATIONS) return null;
+    const obs: Obs[] = series.map((v, i) => {
+      const lo = Math.max(0, i - 1), hi = Math.min(n - 1, i + 1);
+      let m = 0;
+      for (let j = lo; j <= hi; j++) m += series[j]!;
+      m /= hi - lo + 1;
+      return { cells: [[i, 1]], y: v, w: recency(n - 1 - i) / Math.max(2, m) };
+    });
+    const curve = fitSCurve(obs, n);
+    if (!curve) return null;
+    const smooth = series.map((_, i) => scurveAt(curve, i));
+    const future: number[] = [];
+    for (let i = endIdx + 1; i <= Y * 12 + 11; i++) future.push(scurveAt(curve, i - startIdx));
+    let soFar = 0;
+    for (let i = Math.max(startIdx, Y * 12); i <= endIdx; i++) soFar += data.months[monthKey(Y, i % 12)] ?? 0;
+    const projected = Math.max(data.counts[Y] ?? 0, soFar * scale(Y) + future.reduce((a, b) => a + b, 0));
+    return { startYear: Math.floor(startIdx / 12), startMonth: startIdx % 12, smooth, future, projected };
   }
-  const n = endIdx - startIdx + 1;
-  if (n < FIT_MIN_MONTHS) return null;
 
-  const series: number[] = [];
+  // Yearly totals only.
+  let startYear = Math.floor(firstIdx / 12);
+  while (startYear < Y && (data.counts[startYear] ?? 0) === 0) startYear++;
+  const startIdx = startYear * 12;
+  const span = nowIdx - startIdx + 1;
   let raw = 0;
-  for (let i = startIdx; i <= endIdx; i++) {
-    const y = Math.floor(i / 12);
-    const v = data.months[monthKey(y, i % 12)] ?? 0;
+  const obs: Obs[] = [];
+  for (let y = startYear; y <= Y; y++) {
+    const v = data.counts[y] ?? 0;
     raw += v;
-    series.push(v * scale(y));
+    const cells: Array<[number, number]> = [];
+    const lastM = y === Y ? M : 11;
+    for (let m = 0; m <= lastM; m++) cells.push([y * 12 + m - startIdx, y === Y && m === M ? elapsed : 1]);
+    const mid = cells.reduce((a, [t, f]) => a + t * f, 0) / cells.reduce((a, [, f]) => a + f, 0);
+    obs.push({ cells, y: v, w: recency(span - 1 - mid) / Math.max(2, v) });
   }
-  if (raw < FIT_MIN_CITATIONS) return null;
-
-  // Poisson-like weights from a 3-month average, plus a mild preference for
-  // recent months (2-year half-life) since the projection is about now.
-  const weights = series.map((_, i) => {
-    const lo = Math.max(0, i - 1), hi = Math.min(n - 1, i + 1);
-    let m = 0;
-    for (let j = lo; j <= hi; j++) m += series[j]!;
-    m /= hi - lo + 1;
-    return 0.5 ** ((n - 1 - i) / 24) / Math.max(2, m);
-  });
-  const curve = fitSCurve(series, weights);
+  if (obs.length < 2 || raw < FIT_MIN_CITATIONS) return null;
+  const curve = fitSCurve(obs, span);
   if (!curve) return null;
-  const smooth = series.map((_, i) => scurveAt(curve, i));
-
-  const remaining = endY < Y ? 12 : 11 - endM;
+  const smooth: number[] = [];
+  for (let i = startIdx; i < nowIdx; i++) smooth.push(scurveAt(curve, i - startIdx));
   const future: number[] = [];
-  for (let k = 1; k <= remaining; k++) future.push(scurveAt(curve, n - 1 + k));
-
-  let soFar = 0;
-  if (endY === Y) for (let m = 0; m <= endM; m++) soFar += data.months[monthKey(Y, m)] ?? 0;
-  const projected = Math.max(data.counts[Y] ?? 0, soFar * scale(Y) + future.reduce((a, b) => a + b, 0));
-
-  return { startYear: Math.floor(startIdx / 12), startMonth: startIdx % 12, smooth, future, projected };
+  for (let i = nowIdx; i <= Y * 12 + 11; i++) future.push(scurveAt(curve, i - startIdx));
+  const rest = (1 - elapsed) * (future[0] ?? 0) + future.slice(1).reduce((a, b) => a + b, 0);
+  const projected = (data.counts[Y] ?? 0) + rest;
+  return { startYear, startMonth: 0, smooth, future, projected };
 }
 
 /**

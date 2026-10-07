@@ -34,16 +34,25 @@ The model lives in `fitSCurve`, `fitYear` and `classifyTrend` in `src/core.ts`. 
 
 ## Data and speed
 
-Counts come from the [Semantic Scholar Graph API](https://api.semanticscholar.org/api-docs/graph). Citations dated before the paper's arXiv submission year are index errors and are dropped, as are undated ones.
+Two Semantic Scholar sources are combined:
 
-- One request returns the paper and its newest 1,000 citations, which covers most papers.
-- Larger papers page through the rest, three pages at a time, and the chart fills in as pages arrive.
+- **Public Graph API** (`api.semanticscholar.org`): one request returns the paper, its id and its newest 1,000 citing papers with dates. For papers up to 10,000 citations the rest is paged, three pages at a time (one at a time with an API key), to get monthly dates for the curve.
+- **Website endpoint** (`www.semanticscholar.org/api/1/paper/{id}`): exact citations per year in one request, with no 10,000 cap. It is undocumented and outside the public API and its key, so it may change or be blocked; whenever it fails, the extension falls back to counting through the public API.
+
+The bars always use the website's yearly counts, so they match the chart on semanticscholar.org. Its years differ slightly from the citing papers' `year` field in the public API (it shifts some citations later), so the API's dates only shape the months within each year. Papers above 10,000 citations fit the curve on yearly totals alone.
+
+| Paper | Citations | First load | Revisit |
+| --- | --- | --- | --- |
+| 2010.08895 (FNO) | 5,093 | 1.5 s, months refine later | 0.2 s |
+| 1706.03762 (Attention) | 195,610 | 1 to 6 s | 0.6 s |
+
+- The Semantic Scholar id and metadata of each paper are cached for good, so revisits draw the bars from the website endpoint without touching the rate-limited API. If the API is overloaded, the chart stays up from yearly counts instead of showing an error.
+- Charts younger than a day are shown from cache without any request; older ones are shown at once and refreshed in the background.
 - Refused requests (429, 5xx) get exponential backoff with jitter (1 s doubling to 32 s), honour Retry-After, and pause all parallel requests together.
-- With an API key, requests go one at a time, at least 1.1 s apart, inside the 1 request per second limit.
-- Results are cached. Anything under a day old is shown without a request; older data is shown at once and refreshed in the background.
-- A free [Semantic Scholar API key](https://www.semanticscholar.org/product/api#api-key-form) in the options avoids the shared pool.
+- With an API key, API requests go one at a time, at least 1.1 s apart, inside the 1 request per second limit.
+- Citations dated before the paper's arXiv submission year are index errors and are dropped.
 
-The citation list stops at 10,000 entries. Papers above that are counted one year at a time, and a year over 10,000 is drawn hatched with no projection. Splitting such years by month would work, since the filter accepts date ranges, but costs 200+ requests and misses citations that have a year but no date. OpenAlex was considered and rejected: it splits arXiv papers across several records and undercounts badly (26.8k vs 195.6k for "Attention Is All You Need").
+OpenAlex was considered and rejected: it splits arXiv papers across several records and undercounts badly (26.8k vs 195.6k for "Attention Is All You Need").
 
 ## Develop
 

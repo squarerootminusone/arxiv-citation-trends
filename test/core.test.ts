@@ -51,11 +51,11 @@ test('fitSCurve recovers a rising and a falling logistic', () => {
     { b: 5, K: 80, k: 0.15, t0: 30 },
     { b: 10, K: -60, k: 0.2, t0: 25 },
   ]) {
-    const y = Array.from({ length: 60 }, (_, i) => scurveAt(truth, i));
-    const fit = fitSCurve(y, y.map(() => 1))!;
-    y.forEach((v, i) => assert.ok(Math.abs(scurveAt(fit, i) - v) < 0.05 * Math.abs(truth.K), `t=${i}`));
+    const y = Array.from({ length: 60 }, (_, i) => scurveAt(truth, i + 0.5));
+    const fit = fitSCurve(y.map((v, i) => ({ cells: [[i, 1]] as Array<[number, number]>, y: v, w: 1 })), 60)!;
+    y.forEach((v, i) => assert.ok(Math.abs(scurveAt(fit, i + 0.5) - v) < 0.05 * Math.abs(truth.K), `t=${i}`));
     // and the extrapolation levels off rather than running away
-    assert.ok(Math.abs(scurveAt(fit, 90) - scurveAt(truth, 90)) < 0.1 * Math.abs(truth.K));
+    assert.ok(Math.abs(scurveAt(fit, 90.5) - scurveAt(truth, 90.5)) < 0.1 * Math.abs(truth.K));
   }
 });
 
@@ -74,33 +74,47 @@ function monthsFrom(rate: (i: number) => number, fromYear: number, toYear: numbe
 test('fitYear projects a steady rate to about 12 months of it', () => {
   // 50 a month through September 2026, observed on 7 Oct.
   const { months, counts } = monthsFrom(() => 50, 2023, 2026, 8);
-  const fit = fitYear({ months, counts, capped: [], firstYear: 2023 }, OCT)!;
+  const fit = fitYear({ months, counts, monthsComplete: true, capped: [], firstYear: 2023 }, OCT)!;
   assert.ok(Math.abs(fit.projected - 600) < 15, `projected ${fit.projected}`);
   assert.equal(fit.future.length, 3);
 });
 
 test('fitYear carries growth and decline forward', () => {
   const up = monthsFrom((i) => 10 + 2 * i, 2023, 2026, 8);
-  const fu = fitYear({ ...up, capped: [], firstYear: 2023 }, OCT)!;
+  const fu = fitYear({ ...up, monthsComplete: true, capped: [], firstYear: 2023 }, OCT)!;
   const upYtd = up.counts[2026]!;
   assert.ok(fu.projected > upYtd + 3 * 90, 'growing rate projects above the last month rate');
   const down = monthsFrom((i) => Math.max(5, 200 - 4 * i), 2023, 2026, 8);
-  const fd = fitYear({ ...down, capped: [], firstYear: 2023 }, OCT)!;
+  const fd = fitYear({ ...down, monthsComplete: true, capped: [], firstYear: 2023 }, OCT)!;
   assert.ok(fd.future[2]! < fd.future[0]!, 'declining rate keeps declining');
 });
 
 test('fitYear scales dated months up to the full year count', () => {
   const { months, counts } = monthsFrom(() => 50, 2023, 2026, 8);
   for (const y of [2023, 2024, 2025, 2026]) counts[y] = Math.round(counts[y]! * 1.25); // a fifth undated
-  const fit = fitYear({ months, counts, capped: [], firstYear: 2023 }, OCT)!;
+  const fit = fitYear({ months, counts, monthsComplete: true, capped: [], firstYear: 2023 }, OCT)!;
   assert.ok(Math.abs(fit.projected - 750) < 20, `projected ${fit.projected}`);
 });
 
 test('fitYear needs enough data and no capped years', () => {
   const few = monthsFrom(() => 1, 2026, 2026, 8);
-  assert.equal(fitYear({ ...few, capped: [], firstYear: 2026 }, OCT), null);
+  assert.equal(fitYear({ ...few, monthsComplete: true, capped: [], firstYear: 2026 }, OCT), null);
   const big = monthsFrom(() => 50, 2023, 2026, 8);
-  assert.equal(fitYear({ ...big, capped: [2026], firstYear: 2023 }, OCT), null);
+  assert.equal(fitYear({ ...big, monthsComplete: true, capped: [2026], firstYear: 2023 }, OCT), null);
+});
+
+test('fitYear from yearly totals only: steady, growing and levelling papers', () => {
+  // Steady 600 a year; on 7 Oct 2026, 460 so far.
+  const steady = fitYear({ counts: { 2022: 600, 2023: 600, 2024: 600, 2025: 600, 2026: 460 }, months: {}, monthsComplete: false, capped: [], firstYear: 2022 }, OCT)!;
+  assert.ok(Math.abs(steady.projected - 600) < 30, `steady ${steady.projected}`);
+  // Growing fast: projection lands well above last year.
+  const grow = fitYear({ counts: { 2023: 1800, 2024: 5300, 2025: 7300, 2026: 6700 }, months: {}, monthsComplete: false, capped: [], firstYear: 2021 }, OCT)!;
+  assert.ok(grow.projected > 6700 && grow.projected < 11000, `grow ${grow.projected}`);
+  assert.equal(grow.startYear, 2023);
+  // A huge paper uses the same path: no cap on yearly counts any more.
+  const huge = fitYear({ counts: { 2021: 13781, 2022: 20348, 2023: 24000, 2024: 26000, 2025: 27000, 2026: 21500 }, months: {}, monthsComplete: false, capped: [], firstYear: 2017 }, OCT)!;
+  assert.ok(huge.projected > 21500 && huge.projected < 32000, `huge ${huge.projected}`);
+  assert.equal(huge.future.length, 3); // October to December
 });
 
 test('with a projection, the trend compares it with last year', () => {

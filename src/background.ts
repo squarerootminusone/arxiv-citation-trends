@@ -5,7 +5,7 @@ import { LIST_CAP, arxivYear, bucketCitations, type CitingRow } from './core.ts'
 import { PORT_NAME, type CitationData, type CitationReply, type CitationRequest } from './types.ts';
 
 const API = 'https://api.semanticscholar.org/graph/v1/paper/';
-const CACHE_VERSION = 2;
+const CACHE_VERSION = 3;
 /** Cached data younger than this is shown without refetching. */
 const FRESH_MS = 24 * 3600 * 1000;
 /** Older cached data is still shown at once, then replaced when the refetch lands. */
@@ -22,6 +22,16 @@ const BACKOFF_BASE_MS = 1000;
 const BACKOFF_CAP_MS = 32_000;
 const RETRY_STATUSES = new Set([429, 500, 502, 503, 504]);
 const CITE_FIELDS = 'year,publicationDate';
+/**
+ * Semantic Scholar's website endpoint. Undocumented and outside the public API (and
+ * its key), but it returns exact citations per year in one request with no 10k cap.
+ * Everything falls back to the public API when it fails.
+ */
+const SITE_API = 'https://www.semanticscholar.org/api/1/paper/';
+
+interface SitePaper {
+  paper?: { citationStats?: { citedByBuckets?: Array<{ startKey?: number; endKey?: number; count?: number }> } };
+}
 
 type Say = (text: string) => void;
 type Emit = (data: CitationData) => void;
@@ -74,15 +84,20 @@ function backoffMs(attempt: number): number {
   return step / 2 + Math.random() * (step / 2);
 }
 
+/** GET from the Graph API (keyed if a key is set). */
+function s2<T>(path: string, key: string, say: Say): Promise<T> {
+  return getJson<T>(API + path, key, say);
+}
+
 /** GET with exponential backoff on 429/5xx and network errors; honours Retry-After. */
-async function s2<T>(path: string, key: string, say: Say): Promise<T> {
+async function getJson<T>(url: string, key: string, say: Say): Promise<T> {
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     const hold = backoffUntil - Date.now();
     if (hold > 0) await sleep(hold);
     if (key) await paceKeyed();
     let res: Response | null = null;
     try {
-      res = await fetch(API + path, { headers: key ? { 'x-api-key': key } : {} });
+      res = await fetch(url, { headers: key ? { 'x-api-key': key } : {} });
     } catch {
       res = null; // network error: retry like a 5xx
     }
@@ -113,37 +128,84 @@ function citationsPath(id: string, offset: number, limit: number, yearFilter?: n
   return `arXiv:${encodeURIComponent(id)}/citations?fields=${CITE_FIELDS}&limit=${limit}&offset=${offset}${filter}`;
 }
 
+/** What never changes for a paper: Semantic Scholar's id and metadata, cached for good. */
+interface PaperMeta {
+  paperId: string;
+  title: string;
+  pubYear: number | null;
+  total: number;
+}
+
+async function loadMeta(id: string): Promise<PaperMeta | null> {
+  const got = await chrome.storage.local.get(`meta:${id}`);
+  return (got[`meta:${id}`] as PaperMeta | undefined) ?? null;
+}
+
 async function compute(id: string, say: Say, emit: Emit): Promise<CitationData> {
   const key = await apiKey();
   const now = new Date();
   const currentYear = now.getUTCFullYear();
-  say('asking Semantic Scholar');
-
-  // One request returns the paper and its newest 1000 citations, which is
-  // everything for most papers.
-  const paper = await s2<S2Paper>(
-    `arXiv:${encodeURIComponent(id)}?fields=title,year,citationCount,citations.${CITE_FIELDS.replace(',', ',citations.')}`,
-    key,
-    say,
-  );
-  const total = paper.citationCount ?? 0;
-  const pubYear = paper.year ?? null;
   const axYear = arxivYear(id);
-  const firstYear = Math.min(axYear ?? pubYear ?? currentYear, pubYear ?? axYear ?? currentYear);
+  let meta = await loadMeta(id);
+  const firstYearOf = (pubYear: number | null) => Math.min(axYear ?? pubYear ?? currentYear, pubYear ?? axYear ?? currentYear);
 
-  const snapshot = (rows: Iterable<Row>, complete: boolean, capped: number[] = [], extra?: Partial<CitationData>): CitationData => ({
-    v: CACHE_VERSION,
-    id,
-    title: paper.title ?? '',
-    pubYear,
-    firstYear,
-    total,
-    ...bucketCitations(rows, firstYear, currentYear),
-    capped,
-    complete,
-    fetchedAt: now.toISOString(),
-    ...extra,
-  });
+  const snapshot = (
+    m: { title: string; pubYear: number | null; total: number },
+    rows: Iterable<Row>,
+    opts: { complete: boolean; monthsComplete: boolean; capped?: number[]; counts?: Record<number, number> },
+  ): CitationData => {
+    const firstYear = firstYearOf(m.pubYear);
+    const b = bucketCitations(rows, firstYear, currentYear);
+    const counts = opts.counts ?? b.counts;
+    const listed = Object.values(counts).reduce((x, y) => x + y, 0);
+    return {
+      v: CACHE_VERSION,
+      id,
+      title: m.title,
+      pubYear: m.pubYear,
+      firstYear,
+      total: m.total,
+      counts,
+      months: b.months,
+      monthsComplete: opts.monthsComplete,
+      capped: opts.capped ?? [],
+      excluded: opts.counts ? Math.max(0, m.total - listed) : b.excluded,
+      complete: opts.complete,
+      fetchedAt: now.toISOString(),
+    };
+  };
+
+  // Seen before: the website endpoint alone redraws the bars, without the rate-limited API.
+  let yearly: Record<number, number> | null = null;
+  if (meta) {
+    yearly = await siteYearCounts(meta.paperId, firstYearOf(meta.pubYear), currentYear, say);
+    if (yearly) emit(snapshot(meta, [], { complete: true, monthsComplete: false, counts: yearly }));
+  }
+
+  // One API request returns the paper and its newest 1000 citations, which is
+  // everything for most papers.
+  say('asking Semantic Scholar');
+  let paper: S2Paper;
+  try {
+    paper = await s2<S2Paper>(
+      `arXiv:${encodeURIComponent(id)}?fields=title,year,citationCount,citations.${CITE_FIELDS.replace(',', ',citations.')}`,
+      key,
+      say,
+    );
+  } catch (e) {
+    // API overloaded but the bars are already up: keep them.
+    if (meta && yearly) return snapshot(meta, [], { complete: true, monthsComplete: false, counts: yearly });
+    throw e;
+  }
+  if (paper.paperId) {
+    const fresh: PaperMeta = { paperId: paper.paperId, title: paper.title ?? '', pubYear: paper.year ?? null, total: paper.citationCount ?? 0 };
+    if (!meta || meta.paperId !== fresh.paperId) yearly = null;
+    meta = fresh;
+    await chrome.storage.local.set({ [`meta:${id}`]: meta });
+  }
+  const m = { title: paper.title ?? '', pubYear: paper.year ?? null, total: paper.citationCount ?? 0 };
+  const total = m.total;
+  const firstYear = firstYearOf(m.pubYear);
 
   // Dedupe by paper id: page boundaries between the two endpoints can overlap.
   const byId = new Map<string, Row>();
@@ -156,21 +218,26 @@ async function compute(id: string, say: Say, emit: Emit): Promise<CitationData> 
   const rows = () => [...byId.values(), ...anon];
   (paper.citations ?? []).forEach(add);
 
-  if (total <= PAGE || (paper.citations ?? []).length < PAGE) return snapshot(rows(), true);
+  // Exact yearly counts from the website endpoint, used for the bars of every paper
+  // so they match semanticscholar.org; the API's dates only shape months within years.
+  yearly ??= paper.paperId ? await siteYearCounts(paper.paperId, firstYear, currentYear, say) : null;
+  const counts = yearly ?? undefined;
 
+  if (total <= PAGE || (paper.citations ?? []).length < PAGE) {
+    return snapshot(m, rows(), { complete: true, monthsComplete: true, counts });
+  }
+  if (yearly) {
+    if (total >= LIST_CAP) return snapshot(m, rows(), { complete: true, monthsComplete: false, counts });
+    emit(snapshot(m, rows(), { complete: true, monthsComplete: false, counts }));
+    await pageRest(id, total, key, say, add, () => {});
+    return snapshot(m, rows(), { complete: true, monthsComplete: true, counts });
+  }
+
+  // Fallback: public API only.
   if (total < LIST_CAP) {
-    emit(snapshot(rows(), false));
-    const tasks: Array<() => Promise<void>> = [];
-    for (let offset = PAGE; offset < Math.min(total + PAGE, LIST_CAP); offset += PAGE) {
-      const limit = Math.min(PAGE, LIST_CAP - offset);
-      tasks.push(async () => {
-        const page = await s2<S2CitationPage>(citationsPath(id, offset, limit), key, say);
-        (page.data ?? []).forEach((d) => add(d.citingPaper));
-        emit(snapshot(rows(), false));
-      });
-    }
-    await pool(tasks, key ? KEYED_CONCURRENCY : CONCURRENCY);
-    return snapshot(rows(), true);
+    emit(snapshot(m, rows(), { complete: false, monthsComplete: false }));
+    await pageRest(id, total, key, say, add, () => emit(snapshot(m, rows(), { complete: false, monthsComplete: false })));
+    return snapshot(m, rows(), { complete: true, monthsComplete: true });
   }
 
   // Too many for one list: count each year on its own. A year at the cap is
@@ -195,15 +262,45 @@ async function compute(id: string, say: Say, emit: Emit): Promise<CitationData> 
         }
         perYear.set(yr, got);
       }
-      emit(snapshot(merged(), false, [...capped]));
+      emit(snapshot(m, merged(), { complete: false, monthsComplete: false, capped: [...capped] }));
     });
   }
   await pool(tasks, key ? KEYED_CONCURRENCY : CONCURRENCY);
-  const listed = merged().length;
-  const final = snapshot(merged(), true, capped.sort());
+  const final = snapshot(m, merged(), { complete: true, monthsComplete: capped.length === 0, capped: capped.sort() });
   // Citations the per-year lists never return (no year) are the gap to the total.
-  if (!capped.length) final.excluded = Math.max(final.excluded, total - listed);
+  if (!capped.length) final.excluded = Math.max(final.excluded, total - merged().length);
   return final;
+}
+
+/** Pages citations 1000..total (the first 1000 came with the paper). */
+async function pageRest(id: string, total: number, key: string, say: Say, add: (r: Row | undefined) => void, onPage: () => void) {
+  const tasks: Array<() => Promise<void>> = [];
+  for (let offset = PAGE; offset < Math.min(total + PAGE, LIST_CAP); offset += PAGE) {
+    const limit = Math.min(PAGE, LIST_CAP - offset);
+    tasks.push(async () => {
+      const page = await s2<S2CitationPage>(citationsPath(id, offset, limit), key, say);
+      (page.data ?? []).forEach((d) => add(d.citingPaper));
+      onPage();
+    });
+  }
+  await pool(tasks, key ? KEYED_CONCURRENCY : CONCURRENCY);
+}
+
+/** Exact per-year counts from the website endpoint, filtered to possible years; null on any failure. */
+async function siteYearCounts(paperId: string, firstYear: number, currentYear: number, say: Say): Promise<Record<number, number> | null> {
+  try {
+    const site = await getJson<SitePaper>(SITE_API + encodeURIComponent(paperId), '', say);
+    const buckets = site.paper?.citationStats?.citedByBuckets;
+    if (!Array.isArray(buckets) || buckets.length === 0) return null;
+    const counts: Record<number, number> = {};
+    for (const b of buckets) {
+      if (typeof b.startKey !== 'number' || b.startKey !== b.endKey || typeof b.count !== 'number') return null;
+      if (b.startKey >= firstYear && b.startKey <= currentYear) counts[b.startKey] = b.count;
+    }
+    return counts;
+  } catch {
+    return null;
+  }
 }
 
 async function fromCache(id: string): Promise<CitationData | null> {
