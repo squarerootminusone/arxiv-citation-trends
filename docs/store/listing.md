@@ -27,6 +27,7 @@ Citation Trends is an independent project. It is not affiliated with, reviewed b
 **Permission justifications:**
 - storage: caches citation counts so charts load instantly, and keeps the optional API key.
 - api.semanticscholar.org: source of citation data.
+- www.semanticscholar.org/api: exact citations per year for a paper, in one request.
 
 **Data usage:** no user data collected.
 
