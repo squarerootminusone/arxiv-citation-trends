@@ -1,6 +1,6 @@
 # Privacy
 
-arXiv Citation Trends collects no personal data and has no server of its own.
+Citation Trends collects no personal data and has no server of its own.
 
 **What it reads.** On arXiv abstract pages (`arxiv.org/abs/...`) it reads the paper id from the page address. It reads nothing else from any page, and it does not run on other sites.
 

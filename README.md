@@ -1,8 +1,8 @@
 <img src="static/icons/icon128.png" width="64" alt="">
 
-# arXiv Citation Trends
+# Citation Trends
 
-Citations per year on every arXiv abstract page, with a projection for this year and a trend label.
+Citations per year on every arXiv abstract page, with a projection for this year and a trend label. Not affiliated with or endorsed by arXiv.
 
 <img src="docs/screenshot.png" width="260" alt="1,107 citations, trending up: bars for 2022 to 2026 with an S-curve and this year's projection">
 
